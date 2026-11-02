@@ -4,11 +4,15 @@ import {
   canStand,
   createVisitors,
   createWalker,
+  FIREWORK_BURST,
+  FIREWORK_RISE,
   findPath,
+  fireworkState,
   followPath,
   inputDirection,
   isBlocked,
   jumpPose,
+  launchFireworks,
   layoutMidway,
   pathToBooth,
   seededRandom,
@@ -16,6 +20,7 @@ import {
   starJump,
   toScreen,
   toTile,
+  updateFireworks,
   updateJump,
   updateVisitor,
   walk,
@@ -206,5 +211,41 @@ describe('visitors', () => {
       expect(isBlocked(map, Math.floor(visitor.x), Math.floor(visitor.y))).toBe(false);
       expect(visitor.stride).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('fireworks', () => {
+  const colors = ['red', 'gold'];
+
+  it('fires rockets one after another that burst above the player', () => {
+    const fireworks = launchFireworks({ x: 100, y: 200 }, colors, seededRandom(1));
+    expect(fireworks).toHaveLength(3);
+    expect(fireworks.map((f) => -f.age)).toEqual([0, 0.25, 0.5]);
+    for (const f of fireworks) {
+      expect(f.to.y).toBeLessThan(f.from.y);
+      expect(f.from.y).toBeLessThan(200);
+      expect(colors).toContain(f.color);
+    }
+  });
+
+  it('rises, bursts and fades away', () => {
+    const [f] = launchFireworks({ x: 0, y: 0 }, colors, seededRandom(2), 1);
+    expect(fireworkState(f)).toEqual({ phase: 'rising', at: f.from });
+    const fireworks = [f];
+    updateFireworks(fireworks, FIREWORK_RISE);
+    const burst = fireworkState(f);
+    expect(burst).toMatchObject({ phase: 'burst', radius: 0, alpha: 1 });
+    updateFireworks(fireworks, FIREWORK_BURST / 2);
+    const spread = fireworkState(f);
+    expect(spread.phase === 'burst' && spread.radius).toBeGreaterThan(0);
+    updateFireworks(fireworks, FIREWORK_BURST);
+    expect(fireworks).toHaveLength(0);
+  });
+
+  it('keeps later rockets waiting their turn', () => {
+    const fireworks = launchFireworks({ x: 0, y: 0 }, colors, seededRandom(3));
+    expect(fireworkState(fireworks[2]).phase).toBe('waiting');
+    updateFireworks(fireworks, 0.6);
+    expect(fireworkState(fireworks[2]).phase).toBe('rising');
   });
 });

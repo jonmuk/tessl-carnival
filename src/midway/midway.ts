@@ -7,6 +7,7 @@ import {
   drawBooth,
   drawBunting,
   drawCloud,
+  drawFireworks,
   drawFloaters,
   drawFrontHedge,
   drawField,
@@ -29,6 +30,7 @@ import {
   createVisitors,
   createWalker,
   findPath,
+  launchFireworks,
   followPath,
   inputDirection,
   layoutMidway,
@@ -37,10 +39,12 @@ import {
   strollTiles,
   toScreen,
   toTile,
+  updateFireworks,
   updateJump,
   updateVisitor,
   walk,
   type BoothSlot,
+  type Firework,
   type Point,
   type Prop,
 } from './world';
@@ -108,6 +112,7 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
     speed: 3 + Math.random() * 4,
   }));
   const floaters: Floater[] = [];
+  const fireworks: Firework[] = [];
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let nextFloater = 2;
   let inReach: BoothSlot | undefined;
@@ -162,9 +167,12 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
       event.preventDefault();
       play(inReach);
     } else if (event.code === 'Space' && !isControl(event.target)) {
-      // Away from a booth, Space does a star jump.
+      // Away from a booth, Space does a star jump, and the sky lights up.
       event.preventDefault();
-      starJump(player);
+      if (starJump(player) && !calm)
+        fireworks.push(
+          ...launchFireworks(toScreen(player.x, player.y), palette.balloons, Math.random),
+        );
     }
   };
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
@@ -383,6 +391,7 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
     if (onScreen(archBounds(map))) faded(archBounds(map), Infinity, () => drawArch(ctx, map, t));
     drawBunting(ctx, map, t, visible);
     drawFloaters(ctx, floaters);
+    drawFireworks(ctx, fireworks);
 
     // The prompt over the booth in reach, at full resolution.
     if (inReach?.gameId) {
@@ -436,6 +445,7 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
     }
 
     updateFloaters(dt);
+    updateFireworks(fireworks, dt);
     updateCamera(dt);
     draw(time / 1000);
     frame = requestAnimationFrame(loop);

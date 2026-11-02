@@ -3,9 +3,11 @@ import bannerUrl from './aidevcon-banner.png';
 import { palette } from './palette';
 import {
   CART_KINDS,
+  fireworkState,
   jumpPose,
   toScreen,
   type BoothSlot,
+  type Firework,
   type MidwayMap,
   type Point,
   type Prop,
@@ -1744,6 +1746,36 @@ export function drawFloaters(ctx: Ctx, floaters: readonly Floater[]) {
     oval(ctx, f.x + sway - 1.8, f.y - 2.5, 1.4, 2, 'rgba(255,255,255,0.6)');
   }
   ctx.globalAlpha = 1;
+}
+
+/** Rockets climbing from a star jump, then bursting into a ring of sparks. */
+export function drawFireworks(ctx: Ctx, fireworks: readonly Firework[]) {
+  const sparks = 14;
+  for (const f of fireworks) {
+    const state = fireworkState(f);
+    if (state.phase === 'rising') {
+      oval(ctx, state.at.x, state.at.y, 1.4, 1.4, palette.gold);
+      ctx.globalAlpha = 0.5;
+      oval(ctx, state.at.x, state.at.y + 4, 1, 2.5, palette.goldShade);
+    } else if (state.phase === 'burst') {
+      ctx.globalAlpha = state.alpha;
+      for (let i = 0; i < sparks; i++) {
+        const angle = (i / sparks) * Math.PI * 2;
+        const x = f.to.x + Math.cos(angle) * state.radius;
+        const y = f.to.y + Math.sin(angle) * state.radius + state.fall;
+        oval(ctx, x, y, 1.6, 1.6, f.color);
+        oval(
+          ctx,
+          x * 0.6 + f.to.x * 0.4,
+          y * 0.6 + (f.to.y + state.fall) * 0.4,
+          1,
+          1,
+          palette.white,
+        );
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ── Everything else ───────────────────────────────────────────────────────
