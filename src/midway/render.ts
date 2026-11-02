@@ -3,6 +3,7 @@ import bannerUrl from './aidevcon-banner.png';
 import { palette } from './palette';
 import {
   CART_KINDS,
+  jumpPose,
   toScreen,
   type BoothSlot,
   type MidwayMap,
@@ -791,10 +792,19 @@ function person(
   x: number,
   y: number,
   look: Look,
-  options: { swing?: number; back?: boolean; dir?: number; player?: boolean; t?: number } = {},
+  options: {
+    swing?: number;
+    back?: boolean;
+    dir?: number;
+    player?: boolean;
+    t?: number;
+    /** 0 standing, 1 at the top of a star jump: off the ground, arms and legs spread. */
+    star?: number;
+  } = {},
 ) {
   const swing = options.swing ?? 0;
   const dir = options.dir ?? 1;
+  const star = options.star ?? 0;
   oval(ctx, x, y, 5, 2, palette.shadow);
   if (options.player) {
     ctx.strokeStyle = palette.gold;
@@ -803,11 +813,14 @@ function person(
     ctx.ellipse(x, y, 8, 3.5, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
+  // The shadow and ring stay on the ground; everything else leaves it.
+  y -= star * 6;
+  const legSpread = star * 3.5;
   stroke(
     ctx,
     [
       [x - 1.6, y - 8],
-      [x - 1.6 + swing * 1.6, y - 1],
+      [x - 1.6 + swing * 1.6 - legSpread, y - 1 + star],
     ],
     look.pants,
     2.6,
@@ -816,7 +829,7 @@ function person(
     ctx,
     [
       [x + 1.6, y - 8],
-      [x + 1.6 - swing * 1.6, y - 1],
+      [x + 1.6 - swing * 1.6 + legSpread, y - 1 + star],
     ],
     look.pants,
     2.6,
@@ -829,7 +842,7 @@ function person(
     ctx,
     [
       [x - 4, y - 15],
-      [x - 5 - swing, y - 9],
+      [x - 5 - swing - star * 3, y - 9 - star * 13],
     ],
     look.skin,
     2,
@@ -838,7 +851,7 @@ function person(
     ctx,
     [
       [x + 4, y - 15],
-      [x + 5 + swing, y - 9],
+      [x + 5 + swing + star * 3, y - 9 - star * 13],
     ],
     look.skin,
     2,
@@ -1624,6 +1637,7 @@ export function drawWalker(ctx: Ctx, walker: Walker, look: Look, player = false,
     dir: walker.flipped ? -1 : 1,
     player,
     t,
+    star: jumpPose(walker),
   });
 }
 

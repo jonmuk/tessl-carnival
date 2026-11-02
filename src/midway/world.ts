@@ -274,10 +274,45 @@ export interface Walker extends Point {
   walking: boolean;
   /** Distance walked, in tiles; drives the walking animation. */
   stride: number;
+  /** Seconds left of a star jump, or 0 when not jumping. */
+  jump: number;
 }
 
 export function createWalker(at: Point): Walker {
-  return { x: at.x, y: at.y, path: [], facing: 'front', flipped: false, walking: false, stride: 0 };
+  return {
+    x: at.x,
+    y: at.y,
+    path: [],
+    facing: 'front',
+    flipped: false,
+    walking: false,
+    stride: 0,
+    jump: 0,
+  };
+}
+
+/** How long one star jump takes, in seconds. */
+export const STAR_JUMP_TIME = 0.6;
+
+/** Starts a star jump, unless one is already under way. Returns true if it started. */
+export function starJump(walker: Walker): boolean {
+  if (walker.jump > 0) return false;
+  walker.jump = STAR_JUMP_TIME;
+  return true;
+}
+
+/** Moves a star jump on by `dt` seconds. */
+export function updateJump(walker: Walker, dt: number) {
+  walker.jump = Math.max(0, walker.jump - dt);
+}
+
+/**
+ * How far into its star shape a walker is: 0 standing, 1 at the top of the
+ * jump with arms and legs spread wide.
+ */
+export function jumpPose(walker: Walker): number {
+  if (walker.jump <= 0) return 0;
+  return Math.sin((1 - walker.jump / STAR_JUMP_TIME) * Math.PI);
 }
 
 function face(walker: Walker, dx: number, dy: number) {

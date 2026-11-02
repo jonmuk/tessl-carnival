@@ -8,11 +8,15 @@ import {
   followPath,
   inputDirection,
   isBlocked,
+  jumpPose,
   layoutMidway,
   pathToBooth,
   seededRandom,
+  STAR_JUMP_TIME,
+  starJump,
   toScreen,
   toTile,
+  updateJump,
   updateVisitor,
   walk,
 } from './world';
@@ -134,6 +138,29 @@ describe('walking', () => {
     expect(done).toBe(true);
     expect(walker.x).toBe(map.avenueX + 0.5);
     expect(walker.y).toBe(5.5);
+  });
+});
+
+describe('star jump', () => {
+  it('spreads out at the top of the jump and lands standing', () => {
+    const walker = createWalker({ x: 5, y: 5 });
+    expect(jumpPose(walker)).toBe(0);
+    expect(starJump(walker)).toBe(true);
+    updateJump(walker, STAR_JUMP_TIME / 2);
+    expect(jumpPose(walker)).toBeCloseTo(1);
+    updateJump(walker, STAR_JUMP_TIME);
+    expect(walker.jump).toBe(0);
+    expect(jumpPose(walker)).toBe(0);
+  });
+
+  it('finishes one jump before starting the next', () => {
+    const walker = createWalker({ x: 5, y: 5 });
+    starJump(walker);
+    updateJump(walker, STAR_JUMP_TIME / 4);
+    expect(starJump(walker)).toBe(false);
+    expect(walker.jump).toBeCloseTo((STAR_JUMP_TIME * 3) / 4);
+    updateJump(walker, STAR_JUMP_TIME);
+    expect(starJump(walker)).toBe(true);
   });
 });
 
