@@ -22,7 +22,7 @@ function renderMidway() {
       <canvas class="midway-map" aria-label="The carnival midway. Walk up to a booth to play its game."></canvas>
       <p class="midway-help">
         <kbd>WASD</kbd> or <kbd>arrows</kbd> to walk, or click where you want to go.
-        <kbd>E</kbd> to play.
+        <kbd>E</kbd> to play, <kbd>Space</kbd> to do a star jump.
       </p>
       <p class="midway-credit">
         Built with

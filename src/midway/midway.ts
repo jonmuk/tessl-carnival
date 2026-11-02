@@ -33,9 +33,11 @@ import {
   inputDirection,
   layoutMidway,
   pathToBooth,
+  starJump,
   strollTiles,
   toScreen,
   toTile,
+  updateJump,
   updateVisitor,
   walk,
   type BoothSlot,
@@ -159,6 +161,10 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
     } else if (PLAY_KEYS.has(event.code) && !isControl(event.target) && inReach?.gameId) {
       event.preventDefault();
       play(inReach);
+    } else if (event.code === 'Space' && !isControl(event.target)) {
+      // Away from a booth, Space does a star jump.
+      event.preventDefault();
+      starJump(player);
     }
   };
   const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
@@ -419,6 +425,7 @@ export function startMidway(canvas: HTMLCanvasElement, options: MidwayOptions): 
     if (direction.x !== 0 || direction.y !== 0) walk(map, player, direction, dt);
     else if (player.path.length > 0) followPath(player, dt);
     else player.walking = false;
+    updateJump(player, dt);
 
     for (const visitor of visitors) updateVisitor(map, visitor, dt, Math.random, strolls);
 
