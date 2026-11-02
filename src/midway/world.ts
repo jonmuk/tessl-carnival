@@ -315,6 +315,76 @@ export function jumpPose(walker: Walker): number {
   return Math.sin((1 - walker.jump / STAR_JUMP_TIME) * Math.PI);
 }
 
+/** A firework rocket, in world pixels: it rises from `from`, then bursts at `to`. */
+export interface Firework {
+  from: Point;
+  to: Point;
+  /** Seconds since launch; below 0 while it waits its turn. */
+  age: number;
+  color: string;
+}
+
+/** Seconds a rocket takes to climb, and seconds its burst lasts. */
+export const FIREWORK_RISE = 0.7;
+export const FIREWORK_BURST = 1.3;
+
+/**
+ * A few rockets fired from a screen point, one after another, bursting high
+ * overhead in the given colours.
+ */
+export function launchFireworks(
+  from: Point,
+  colors: readonly string[],
+  random: () => number,
+  count = 3,
+): Firework[] {
+  return Array.from({ length: count }, (_, i) => ({
+    from: { x: from.x, y: from.y - 30 },
+    to: { x: from.x + (random() - 0.5) * 160, y: from.y - 120 - random() * 60 },
+    age: -i * 0.25,
+    color: colors[Math.floor(random() * colors.length)],
+  }));
+}
+
+/** Moves fireworks on by `dt` seconds and drops the ones that have faded. */
+export function updateFireworks(fireworks: Firework[], dt: number) {
+  for (const f of fireworks) f.age += dt;
+  fireworks.splice(
+    0,
+    fireworks.length,
+    ...fireworks.filter((f) => f.age < FIREWORK_RISE + FIREWORK_BURST),
+  );
+}
+
+/**
+ * Where a firework is in its life: the rocket's position while it climbs, or
+ * how far the burst has spread (in pixels) and how bright it still is.
+ */
+export function fireworkState(
+  f: Firework,
+):
+  | { phase: 'waiting' }
+  | { phase: 'rising'; at: Point }
+  | { phase: 'burst'; radius: number; fall: number; alpha: number } {
+  if (f.age < 0) return { phase: 'waiting' };
+  if (f.age < FIREWORK_RISE) {
+    const k = f.age / FIREWORK_RISE;
+    // Fast off the ground, slowing near the top.
+    const ease = 1 - (1 - k) * (1 - k);
+    return {
+      phase: 'rising',
+      at: { x: f.from.x + (f.to.x - f.from.x) * ease, y: f.from.y + (f.to.y - f.from.y) * ease },
+    };
+  }
+  const k = Math.min(1, (f.age - FIREWORK_RISE) / FIREWORK_BURST);
+  return {
+    phase: 'burst',
+    radius: 34 * (1 - (1 - k) * (1 - k)),
+    fall: 14 * k * k,
+    alpha: 1 - k,
+  };
+}
+
 function face(walker: Walker, dx: number, dy: number) {
   // Screen direction of a tile step: x is (dx - dy), y is (dx + dy).
   const sx = dx - dy;
