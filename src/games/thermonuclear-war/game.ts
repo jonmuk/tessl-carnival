@@ -2,9 +2,18 @@ import { canvasFont, recordScore, theme, type CarnivalGame } from '../../carniva
 
 const { width: WIDTH, height: HEIGHT } = theme.canvas;
 
-/** The world map fills the canvas between these rows; the HUD sits below. */
-const MAP_TOP = 40;
-const MAP_BOTTOM = 440;
+/** The header and footer bars, like the WOPR's terminal. */
+const HEADER = 28;
+const FOOTER_TOP = HEIGHT - 28;
+/** The WOPR console runs down the left side. */
+const CONSOLE_WIDTH = 280;
+/** The wireframe globe sits above the world map, both right of the console. */
+const PANEL_LEFT = CONSOLE_WIDTH + 8;
+const PANEL_RIGHT = WIDTH - 8;
+const GLOBE_TOP = HEADER + 8;
+const GLOBE_BOTTOM = 188;
+const MAP_TOP = 196;
+const MAP_BOTTOM = FOOTER_TOP - 8;
 
 export const COUNTRIES_TO_END = 5;
 export const POINTS_PER_HIT = 100;
@@ -23,6 +32,8 @@ export const FLICKER_TIME = 0.05;
 export const MOVE_TIME = 0.12;
 /** Seconds a finished board stays up before the next game. */
 export const BOARD_PAUSE = 0.5;
+/** The console keeps this many lines; older ones scroll away. */
+export const LOG_LENGTH = 40;
 
 export interface Point {
   x: number;
@@ -32,7 +43,7 @@ export interface Point {
 /** Equirectangular projection from longitude and latitude to the canvas. */
 export function project(lon: number, lat: number): Point {
   return {
-    x: ((lon + 180) / 360) * WIDTH,
+    x: PANEL_LEFT + ((lon + 180) / 360) * (PANEL_RIGHT - PANEL_LEFT),
     y: MAP_TOP + ((80 - lat) / 140) * (MAP_BOTTOM - MAP_TOP),
   };
 }
@@ -116,8 +127,20 @@ export interface LaunchCode {
   launched: boolean;
 }
 
+/** One line of the WOPR console. Alerts show in red. */
+export interface LogLine {
+  text: string;
+  alert: boolean;
+}
+
 export interface ThermonuclearWarState {
   ticTacToe: TicTacToe;
+  /** The WOPR console, oldest line first. */
+  log: LogLine[];
+  /** Seconds since the round started. */
+  time: number;
+  /** Warheads launched so far. */
+  launches: number;
   launchCode: LaunchCode;
   countries: Country[];
   warheads: Warhead[];
@@ -154,6 +177,18 @@ export function createLaunchCode(random: () => number = Math.random): LaunchCode
 export function createState(random: () => number = Math.random): ThermonuclearWarState {
   return {
     ticTacToe: createTicTacToe(),
+    log: [
+      'W.O.P.R SYSTEM ONLINE',
+      'INITIALIZING GLOBAL',
+      'THERMONUCLEAR WAR SIMULATION',
+      'OBJECTIVE: STOP THE WARHEADS',
+      `BEFORE ${COUNTRIES_TO_END} COUNTRIES ARE HIT`,
+      'AIM: MOVE THE MOUSE',
+      'FIRE: SPACE, FROM NORAD',
+      'WOPR CRACKING LAUNCH CODE',
+    ].map((text) => ({ text, alert: false })),
+    time: 0,
+    launches: 0,
     launchCode: createLaunchCode(random),
     countries: COUNTRIES.map(([name, lon, lat]) => ({ name, city: project(lon, lat), hit: false })),
     warheads: [],
@@ -165,6 +200,12 @@ export function createState(random: () => number = Math.random): ThermonuclearWa
     score: 0,
     phase: 'playing',
   };
+}
+
+/** Adds lines to the WOPR console, dropping the oldest past LOG_LENGTH. */
+export function log(state: ThermonuclearWarState, alert: boolean, ...lines: string[]): void {
+  for (const text of lines) state.log.push({ text, alert });
+  if (state.log.length > LOG_LENGTH) state.log.splice(0, state.log.length - LOG_LENGTH);
 }
 
 export function countriesHit(state: ThermonuclearWarState): number {
@@ -203,12 +244,22 @@ export function launch(state: ThermonuclearWarState, random: () => number = Math
   const target = targets[Math.floor(random() * targets.length)];
   const origins = state.countries.map((_, i) => i).filter((i) => i !== target);
   const origin = origins[Math.floor(random() * origins.length)];
+  const flightTime = 5 + random() * 3;
   state.warheads.push({
     from: { ...state.countries[origin].city },
     target,
     progress: 0,
-    flightTime: 5 + random() * 3,
+    flightTime,
   });
+  state.launches += 1;
+  log(state, true, 'MISSILE LAUNCH DETECTED');
+  log(
+    state,
+    false,
+    `SOURCE: ${state.countries[origin].name.toUpperCase()}`,
+    `TARGET: ${state.countries[target].name.toUpperCase()}`,
+    `ETA: ${Math.round(flightTime)} SECONDS`,
+  );
 }
 
 /** Launches a warhead at every country that hasn't been hit yet, all at once. */
@@ -223,7 +274,12 @@ export function launchAll(state: ThermonuclearWarState, random: () => number = M
       progress: 0,
       flightTime: 5 + random() * 3,
     });
+    state.launches += 1;
   });
+  if (state.warheads.length > 0) {
+    log(state, true, 'LAUNCHING ALL WEAPONS');
+    log(state, false, `${state.warheads.length} WARHEADS IN FLIGHT`);
+  }
 }
 
 const LINES = [
@@ -316,6 +372,7 @@ export function stepWopr(
   if (codeCracked(code)) {
     if (!code.launched) {
       code.launched = true;
+      log(state, true, 'LAUNCH CODE ACCEPTED');
       launchAll(state, random);
     }
     return;
@@ -364,6 +421,7 @@ export function step(
 
   if (state.phase === 'over') return;
 
+  state.time += dt;
   stepWopr(state, dt, random);
   state.reload = Math.max(0, state.reload - dt);
   state.nextLaunch -= dt;
@@ -400,10 +458,13 @@ export function step(
     if (caught) {
       state.destroyed += 1;
       state.score += POINTS_PER_HIT;
+      log(state, false, `WARHEAD DESTROYED +${POINTS_PER_HIT}`);
     } else if (warhead.progress >= 1) {
       const country = state.countries[warhead.target];
       country.hit = true;
       state.blasts.push({ ...country.city, age: 0, kind: 'impact' });
+      log(state, true, `CITY DESTROYED: ${country.name.toUpperCase()}`);
+      log(state, false, `COUNTRIES HIT: ${countriesHit(state)}/${COUNTRIES_TO_END}`);
     } else {
       remaining.push(warhead);
     }
@@ -412,6 +473,8 @@ export function step(
 
   if (countriesHit(state) >= COUNTRIES_TO_END) {
     state.phase = 'over';
+    log(state, true, 'SIMULATION ENDED');
+    log(state, false, `FINAL SCORE: ${state.score}`);
     state.warheads = [];
     state.interceptors = [];
   }
@@ -576,16 +639,206 @@ const CONTINENTS: [number, number][][] = [
   ],
 ];
 
-/** The WOPR's tic-tac-toe, in the bottom right corner of the map. */
+/** Draws the text in a smaller size, for labels that have to fit between cities. */
+function smallText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  scale: number,
+) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+/** A terminal panel: dark fill with a green border. */
+function drawPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  const { colors } = theme;
+  ctx.fillStyle = colors.terminalBackground;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = colors.terminal;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+
+/** Header across the top: the title, the round's clock and the connection. */
+function drawHeader(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState) {
+  const { colors } = theme;
+  ctx.fillStyle = colors.terminal;
+  ctx.font = canvasFont('small', 'bold', 'mono');
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText('W.O.P.R // GLOBAL THERMONUCLEAR WAR', 10, HEADER / 2);
+  const seconds = Math.floor(state.time);
+  const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`TIME: ${clock}   CONNECTION: ACTIVE`, WIDTH - 10, HEADER / 2);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillRect(0, HEADER - 1, WIDTH, 1);
+}
+
+/** Footer across the bottom: NORAD and the round's numbers. */
+function drawFooter(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState) {
+  const { colors } = theme;
+  ctx.fillStyle = colors.terminal;
+  ctx.fillRect(0, FOOTER_TOP, WIDTH, 1);
+  ctx.font = canvasFont('small', 'bold', 'mono');
+  ctx.textBaseline = 'middle';
+  const y = FOOTER_TOP + (HEIGHT - FOOTER_TOP) / 2;
+  ctx.textAlign = 'left';
+  ctx.fillText('NORAD // CHEYENNE MTN', 10, y);
+  ctx.textAlign = 'center';
+  ctx.fillText(
+    `LAUNCHES: ${state.launches} | DESTROYED: ${state.destroyed} | SCORE: ${state.score}`,
+    (WIDTH + 200) / 2,
+    y,
+  );
+  ctx.textAlign = 'right';
+  ctx.fillStyle = countriesHit(state) > 0 ? colors.danger : colors.terminal;
+  ctx.fillText(`HIT: ${countriesHit(state)}/${COUNTRIES_TO_END}`, WIDTH - 10, y);
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** The WOPR console on the left: the log, then the launch code at the prompt. */
+function drawConsole(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState) {
+  const { colors } = theme;
+  const top = HEADER;
+  const bottom = FOOTER_TOP;
+  ctx.fillStyle = colors.terminalBackground;
+  ctx.fillRect(0, top, CONSOLE_WIDTH, bottom - top);
+  ctx.fillStyle = colors.terminal;
+  ctx.fillRect(CONSOLE_WIDTH, top, 1, bottom - top);
+
+  ctx.font = canvasFont('small', 'bold', 'mono');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('WOPR CONSOLE', CONSOLE_WIDTH / 2, top + 14);
+  ctx.fillRect(0, top + 28, CONSOLE_WIDTH, 1);
+
+  // The prompt at the bottom shows the launch code being cracked.
+  const promptTop = bottom - 56;
+  ctx.fillRect(0, promptTop, CONSOLE_WIDTH, 1);
+  const code = state.launchCode;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = code.launched ? colors.danger : colors.terminalDim;
+  ctx.fillText(code.launched ? 'LAUNCHING ALL WEAPONS' : 'LAUNCH CODE', 10, promptTop + 16);
+  ctx.fillStyle = colors.terminal;
+  ctx.font = canvasFont('body', 'bold', 'mono');
+  ctx.fillText('>', 10, promptTop + 38);
+  code.shown.forEach((character, i) => {
+    ctx.fillStyle = code.found[i] ? colors.terminal : colors.terminalDim;
+    ctx.fillText(character, 34 + i * 16, promptTop + 38);
+  });
+
+  // The log, newest at the bottom; older lines scroll off the top.
+  const lineHeight = 17;
+  const logTop = top + 40;
+  const fits = Math.floor((promptTop - 8 - logTop) / lineHeight);
+  const lines = state.log.slice(-fits);
+  ctx.font = canvasFont('small', 'normal', 'mono');
+  lines.forEach((line, i) => {
+    const y = logTop + i * lineHeight + lineHeight / 2;
+    if (line.alert) {
+      ctx.fillStyle = colors.danger;
+      const width = ctx.measureText(line.text).width;
+      ctx.fillRect(8, y - 6, 5, 12);
+      ctx.fillRect(22 + width, y - 6, 5, 12);
+      ctx.fillText(line.text, 17, y);
+    } else {
+      ctx.fillStyle = colors.terminal;
+      ctx.fillText(line.text, 8, y);
+    }
+  });
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** Where a longitude and latitude land on the spinning globe, and whether it faces us. */
+function globePoint(lon: number, lat: number, spin: number, cx: number, cy: number, r: number) {
+  const tilt = 0.35;
+  const lambda = ((lon + spin) * Math.PI) / 180;
+  const phi = (lat * Math.PI) / 180;
+  const x = Math.cos(phi) * Math.sin(lambda);
+  const y = Math.sin(phi);
+  const z = Math.cos(phi) * Math.cos(lambda);
+  return {
+    x: cx + r * x,
+    y: cy - r * (y * Math.cos(tilt) - z * Math.sin(tilt)),
+    front: y * Math.sin(tilt) + z * Math.cos(tilt) >= 0,
+  };
+}
+
+/** The wireframe globe above the map, turning slowly, with satellites in orbit. */
+function drawGlobe(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState) {
+  const { colors } = theme;
+  drawPanel(ctx, PANEL_LEFT, GLOBE_TOP, PANEL_RIGHT - PANEL_LEFT, GLOBE_BOTTOM - GLOBE_TOP);
+  const cx = (PANEL_LEFT + PANEL_RIGHT) / 2;
+  const cy = (GLOBE_TOP + GLOBE_BOTTOM) / 2 + 4;
+  const r = (GLOBE_BOTTOM - GLOBE_TOP) / 2 - 16;
+  const spin = state.time * 12;
+
+  // Each grid line is drawn in short segments, bright in front and dim behind.
+  const front = new Path2D();
+  const back = new Path2D();
+  const segment = (a: [number, number], b: [number, number]) => {
+    const p = globePoint(a[0], a[1], spin, cx, cy, r);
+    const q = globePoint(b[0], b[1], spin, cx, cy, r);
+    const path = p.front && q.front ? front : back;
+    path.moveTo(p.x, p.y);
+    path.lineTo(q.x, q.y);
+  };
+  for (let lon = 0; lon < 360; lon += 20) {
+    for (let lat = -90; lat < 90; lat += 10) segment([lon, lat], [lon, lat + 10]);
+  }
+  for (let lat = -60; lat <= 60; lat += 20) {
+    for (let lon = 0; lon < 360; lon += 10) segment([lon, lat], [lon + 10, lat]);
+  }
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colors.terminalDim;
+  ctx.stroke(back);
+  ctx.strokeStyle = colors.terminal;
+  ctx.stroke(front);
+
+  state.countries.forEach((country, i) => {
+    const [, lon, lat] = COUNTRIES[i];
+    const p = globePoint(lon, lat, spin, cx, cy, r);
+    if (!p.front) return;
+    ctx.fillStyle = country.hit ? colors.danger : colors.accent;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, country.hit ? 3 : 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // SDI satellites, on orbits a little wider than the globe.
+  ctx.fillStyle = colors.water;
+  for (let i = 0; i < 4; i++) {
+    const angle = state.time * 0.4 + (i * Math.PI) / 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(angle) * (r + 26), cy - r * 0.9 + Math.sin(angle) * 8, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = colors.terminalDim;
+  ctx.font = canvasFont('small', 'normal', 'mono');
+  ctx.textAlign = 'left';
+  smallText(ctx, 'ORBITAL VIEW', PANEL_LEFT + 8, GLOBE_TOP + 16, 0.8);
+}
+
+/** The WOPR's tic-tac-toe, in the top right corner of the globe panel. */
 function drawTicTacToe(ctx: CanvasRenderingContext2D, game: TicTacToe) {
   const { colors } = theme;
   const cell = 18;
-  const left = WIDTH - 16 - cell * 3;
-  const top = MAP_BOTTOM - 8 - cell * 3;
+  const left = PANEL_RIGHT - 12 - cell * 3;
+  const top = GLOBE_TOP + 24;
 
-  ctx.fillStyle = colors.background;
-  ctx.fillRect(left - 4, top - 4, cell * 3 + 8, cell * 3 + 8);
-  ctx.strokeStyle = colors.water;
+  ctx.fillStyle = colors.terminalDim;
+  ctx.font = canvasFont('small', 'normal', 'mono');
+  ctx.textAlign = 'left';
+  smallText(ctx, 'TIC-TAC-TOE', left - 4, top - 8, 0.7);
+
+  ctx.strokeStyle = colors.terminal;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 1; i < 3; i++) {
@@ -596,86 +849,82 @@ function drawTicTacToe(ctx: CanvasRenderingContext2D, game: TicTacToe) {
   }
   ctx.stroke();
 
-  ctx.font = canvasFont('small', 'bold');
+  ctx.font = canvasFont('small', 'bold', 'mono');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   game.board.forEach((mark, i) => {
     if (!mark) return;
-    ctx.fillStyle = mark === 'X' ? colors.accent : colors.text;
+    ctx.fillStyle = mark === 'X' ? colors.accent : colors.water;
     ctx.fillText(mark, left + cell * (i % 3) + cell / 2, top + cell * Math.floor(i / 3) + cell / 2);
   });
   ctx.textBaseline = 'alphabetic';
 }
 
-/** The launch code: found characters hold still, the rest keep flipping. */
-function drawLaunchCode(ctx: CanvasRenderingContext2D, code: LaunchCode) {
+/** The green world map, with every country marked and named. */
+function drawMap(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState) {
   const { colors } = theme;
-  const spacing = 18;
-  const left = WIDTH / 2 - (spacing * (CODE_LENGTH - 1)) / 2;
-  ctx.font = canvasFont('body', 'bold');
-  ctx.textAlign = 'center';
-  code.shown.forEach((character, i) => {
-    ctx.fillStyle = code.found[i] ? colors.accent : colors.muted;
-    ctx.fillText(character, left + spacing * i, HEIGHT - 20);
-  });
-  ctx.font = canvasFont('small');
-  ctx.fillStyle = code.launched ? colors.danger : colors.water;
-  ctx.fillText(code.launched ? 'LAUNCHING ALL WEAPONS' : 'LAUNCH CODE', WIDTH / 2, HEIGHT - 44);
+  drawPanel(ctx, PANEL_LEFT, MAP_TOP, PANEL_RIGHT - PANEL_LEFT, MAP_BOTTOM - MAP_TOP);
+
+  const coastline = new Path2D();
+  for (const outline of CONTINENTS) {
+    outline.forEach(([lon, lat], i) => {
+      const { x, y } = project(lon, lat);
+      if (i === 0) coastline.moveTo(x, y);
+      else coastline.lineTo(x, y);
+    });
+    coastline.closePath();
+  }
+  // A wide dim stroke under a thin bright one reads as a phosphor glow.
+  ctx.strokeStyle = colors.terminalDim;
+  ctx.lineWidth = 4;
+  ctx.globalAlpha = 0.5;
+  ctx.stroke(coastline);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = colors.terminal;
+  ctx.lineWidth = 1.5;
+  ctx.stroke(coastline);
+
+  ctx.font = canvasFont('small', 'bold', 'mono');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (const country of state.countries) {
+    ctx.fillStyle = colors.danger;
+    ctx.beginPath();
+    ctx.arc(country.city.x, country.city.y, country.hit ? 5 : 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = country.hit ? colors.danger : colors.terminal;
+    // Names near the right edge go on the left of their dot so they stay on the map.
+    const name = country.name.toUpperCase();
+    const width = ctx.measureText(name).width * 0.6;
+    const x =
+      country.city.x + 5 + width > PANEL_RIGHT - 4
+        ? country.city.x - 5 - width
+        : country.city.x + 5;
+    smallText(ctx, name, x, country.city.y, 0.6);
+  }
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = colors.accent;
+  ctx.fillRect(NORAD.x - 4, NORAD.y - 4, 8, 8);
 }
 
 function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: Point) {
   const { colors } = theme;
 
-  ctx.fillStyle = colors.background;
+  ctx.fillStyle = colors.terminalBackground;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Latitude and longitude grid.
-  ctx.strokeStyle = colors.surface;
-  ctx.lineWidth = 1;
-  for (let lon = -150; lon <= 150; lon += 30) {
-    const { x } = project(lon, 0);
-    ctx.beginPath();
-    ctx.moveTo(x, MAP_TOP);
-    ctx.lineTo(x, MAP_BOTTOM);
-    ctx.stroke();
-  }
-  for (let lat = 60; lat >= -40; lat -= 20) {
-    const { y } = project(0, lat);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(WIDTH, y);
-    ctx.stroke();
-  }
+  drawHeader(ctx, state);
+  drawConsole(ctx, state);
+  drawGlobe(ctx, state);
+  drawTicTacToe(ctx, state.ticTacToe);
+  drawMap(ctx, state);
+  drawFooter(ctx, state);
 
-  ctx.strokeStyle = colors.water;
-  ctx.lineWidth = 2;
-  for (const outline of CONTINENTS) {
-    ctx.beginPath();
-    outline.forEach(([lon, lat], i) => {
-      const { x, y } = project(lon, lat);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-    ctx.stroke();
-  }
-
-  ctx.font = canvasFont('small');
-  ctx.textAlign = 'center';
-  for (const country of state.countries) {
-    ctx.fillStyle = country.hit ? colors.danger : colors.muted;
-    ctx.beginPath();
-    ctx.arc(country.city.x, country.city.y, country.hit ? 5 : 3, 0, Math.PI * 2);
-    ctx.fill();
-    if (country.hit) ctx.fillText(country.name, country.city.x, country.city.y - 10);
-  }
-
-  ctx.fillStyle = colors.accent;
-  ctx.fillRect(NORAD.x - 4, NORAD.y - 4, 8, 8);
-
-  // Warheads, with the trail of their arc so far.
+  // Warheads, with a dotted trail of their arc so far.
   ctx.strokeStyle = colors.danger;
   ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
   for (const warhead of state.warheads) {
     const to = state.countries[warhead.target].city;
     ctx.beginPath();
@@ -687,13 +936,17 @@ function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: 
     const head = warheadPosition(state, warhead);
     ctx.lineTo(head.x, head.y);
     ctx.stroke();
-    ctx.fillStyle = colors.text;
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle = colors.accent;
+  for (const warhead of state.warheads) {
+    const head = warheadPosition(state, warhead);
     ctx.beginPath();
     ctx.arc(head.x, head.y, 3, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.strokeStyle = colors.accent;
+  ctx.strokeStyle = colors.water;
   for (const interceptor of state.interceptors) {
     ctx.beginPath();
     ctx.moveTo(NORAD.x, NORAD.y);
@@ -703,7 +956,7 @@ function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: 
 
   for (const blast of state.blasts) {
     ctx.globalAlpha = 1 - blast.age / BLAST_TIME;
-    ctx.strokeStyle = blast.kind === 'intercept' ? colors.accent : colors.danger;
+    ctx.strokeStyle = blast.kind === 'intercept' ? colors.water : colors.danger;
     ctx.lineWidth = 3;
     ctx.beginPath();
     const radius = blast.kind === 'intercept' ? blastRadius(blast.age) : 8 + blast.age * 50;
@@ -713,7 +966,7 @@ function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: 
   ctx.globalAlpha = 1;
 
   // Crosshair.
-  ctx.strokeStyle = colors.text;
+  ctx.strokeStyle = colors.terminal;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(aim.x - 10, aim.y);
@@ -722,38 +975,20 @@ function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: 
   ctx.lineTo(aim.x, aim.y + 10);
   ctx.stroke();
 
-  ctx.fillStyle = colors.water;
-  ctx.font = canvasFont('body', 'bold');
-  ctx.textAlign = 'center';
-  ctx.fillText('GLOBAL THERMONUCLEAR WAR', WIDTH / 2, 26);
-
-  drawTicTacToe(ctx, state.ticTacToe);
-  drawLaunchCode(ctx, state.launchCode);
-
-  ctx.fillStyle = colors.text;
-  ctx.textAlign = 'left';
-  ctx.fillText(`Score ${state.score}`, 16, HEIGHT - 20);
-  ctx.textAlign = 'right';
-  ctx.fillText(`Countries hit ${countriesHit(state)}/${COUNTRIES_TO_END}`, WIDTH - 16, HEIGHT - 20);
-
   if (state.phase === 'over') {
-    ctx.fillStyle = colors.background;
-    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = colors.terminalBackground;
+    ctx.globalAlpha = 0.85;
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     ctx.globalAlpha = 1;
     ctx.textAlign = 'center';
-    ctx.fillStyle = colors.accent;
-    ctx.font = canvasFont('title', 'bold');
-    ctx.fillText(`Game over! You scored ${state.score}`, WIDTH / 2, HEIGHT / 2 - 20);
-    ctx.fillStyle = colors.water;
-    ctx.font = canvasFont('body');
-    ctx.fillText(
-      'A strange game. The only winning move is not to play.',
-      WIDTH / 2,
-      HEIGHT / 2 + 20,
-    );
-    ctx.fillStyle = colors.text;
-    ctx.fillText('Press Space or click to play again', WIDTH / 2, HEIGHT / 2 + 55);
+    ctx.fillStyle = colors.terminal;
+    ctx.font = canvasFont('title', 'bold', 'mono');
+    ctx.fillText(`GAME OVER. SCORE: ${state.score}`, WIDTH / 2, HEIGHT / 2 - 20);
+    ctx.font = canvasFont('body', 'normal', 'mono');
+    ctx.fillText('A STRANGE GAME.', WIDTH / 2, HEIGHT / 2 + 16);
+    ctx.fillText('THE ONLY WINNING MOVE IS NOT TO PLAY.', WIDTH / 2, HEIGHT / 2 + 40);
+    ctx.fillStyle = colors.terminalDim;
+    ctx.fillText('PRESS SPACE OR CLICK TO PLAY AGAIN', WIDTH / 2, HEIGHT / 2 + 76);
   }
 }
 

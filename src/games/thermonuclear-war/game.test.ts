@@ -3,7 +3,9 @@ import {
   BLAST_TIME,
   CODE_LENGTH,
   FLICKER_TIME,
+  LOG_LENGTH,
   MOVE_TIME,
+  log,
   bestMove,
   codeCracked,
   crackCharacter,
@@ -157,5 +159,38 @@ describe('thermonuclear war', () => {
     state.countries.forEach((c) => (c.hit = true));
     launchAll(state, first);
     expect(state.warheads).toHaveLength(0);
+  });
+
+  it('logs each launch on the console and counts it', () => {
+    const state = createState();
+    launch(state, first);
+    expect(state.launches).toBe(1);
+    const texts = state.log.map((line) => line.text);
+    expect(texts).toContain('MISSILE LAUNCH DETECTED');
+    expect(texts).toContain(`TARGET: ${state.countries[0].name.toUpperCase()}`);
+    expect(state.log.find((line) => line.text === 'MISSILE LAUNCH DETECTED')?.alert).toBe(true);
+  });
+
+  it('logs a city destroyed when a warhead lands', () => {
+    const state = createState();
+    launch(state, first);
+    state.warheads[0].progress = 0.999;
+    step(state, 0.1, first);
+    expect(state.log.some((line) => line.alert && line.text.startsWith('CITY DESTROYED'))).toBe(
+      true,
+    );
+  });
+
+  it('keeps the console to its last lines', () => {
+    const state = createState();
+    for (let i = 0; i < LOG_LENGTH + 10; i++) log(state, false, `LINE ${i}`);
+    expect(state.log).toHaveLength(LOG_LENGTH);
+    expect(state.log.at(-1)?.text).toBe(`LINE ${LOG_LENGTH + 9}`);
+  });
+
+  it('runs the clock while the round is on', () => {
+    const state = createState();
+    step(state, 0.5, first);
+    expect(state.time).toBeCloseTo(0.5);
   });
 });

@@ -14,9 +14,13 @@ export const theme = {
     stripeB: '#fff8e7',
     water: '#5ec8f2',
     wood: '#8a5a3b',
+    terminal: '#66ff66',
+    terminalDim: '#2b8a3e',
+    terminalBackground: '#050805',
   },
   font: {
     family: '"Trebuchet MS", "Segoe UI", system-ui, sans-serif',
+    mono: 'ui-monospace, Menlo, Consolas, "Liberation Mono", "Courier New", monospace',
     small: 14,
     body: 18,
     title: 32,
@@ -28,9 +32,16 @@ export const theme = {
   },
 } as const;
 
-/** Canvas font string, e.g. canvasFont('title') → 'bold 32px "Trebuchet MS", …'. */
-export function canvasFont(size: 'small' | 'body' | 'title', weight: 'normal' | 'bold' = 'normal') {
-  return `${weight} ${theme.font[size]}px ${theme.font.family}`;
+/**
+ * Canvas font string, e.g. canvasFont('title') → 'bold 32px "Trebuchet MS", …'.
+ * Pass 'mono' as the family for a terminal look.
+ */
+export function canvasFont(
+  size: 'small' | 'body' | 'title',
+  weight: 'normal' | 'bold' = 'normal',
+  family: 'family' | 'mono' = 'family',
+) {
+  return `${weight} ${theme.font[size]}px ${theme.font[family]}`;
 }
 
 /** Exposes the theme to CSS as custom properties, e.g. --color-accent. */
