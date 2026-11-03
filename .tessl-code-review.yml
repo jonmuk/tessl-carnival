@@ -1,0 +1,11 @@
+schemaVersion: 1
+ignore:
+  - .tessl/plugins/**
+  - '**/tessl__*'
+  - '**/tessl__*/**'
+lenses:
+  - ref: tessl/code-review@0.2.0#review-correctness-and-data-integrity
+  - ref: tessl/code-review@0.2.0#review-security-and-privacy
+  - ref: tessl/code-review@0.2.0#review-scale-and-resilience
+  - ref: tessl/code-review@0.2.0#review-maintainability-and-code-quality
+  - ref: ./review-lenses/review-pii-disclosure/SKILL.md
