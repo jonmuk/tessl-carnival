@@ -56,6 +56,9 @@ docs/midway.jpg           the screenshot at the top of the README
 docs/social-preview.jpg   the 1280x640 image for link previews and GitHub's social preview
 docs/jit-board-queue.md   the design for the workshop's advanced stretch
 tessl-factory/skills/     sample skills for maintenance loops
+.tessl-code-review.yml    the lenses Tessl Code Review runs on every pull request
+review-lenses/            the repository's own review lenses
+  review-pii-disclosure/  flags personal data (PII) a change adds or sends
 src/
   main.ts                 the router (#/play/<game-id>) and the midway's overlay
   midway/                 the walkable midway map
