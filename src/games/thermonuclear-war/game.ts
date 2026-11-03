@@ -14,6 +14,16 @@ export const BLAST_RADIUS = 40;
 export const BLAST_TIME = 0.5;
 const FIRST_LAUNCH = 1;
 
+/** The launch code the WOPR cracks, one character per stalemate of tic-tac-toe. */
+export const CODE_LENGTH = 8;
+export const CODE_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+/** Seconds between new guesses on each character still being cracked. */
+export const FLICKER_TIME = 0.05;
+/** Seconds between moves in the WOPR's tic-tac-toe. */
+export const MOVE_TIME = 0.12;
+/** Seconds a finished board stays up before the next game. */
+export const BOARD_PAUSE = 0.5;
+
 export interface Point {
   x: number;
   y: number;
@@ -80,7 +90,35 @@ export interface Blast {
   kind: 'intercept' | 'impact';
 }
 
+export type Mark = 'X' | 'O';
+export type Cell = Mark | null;
+
+export interface TicTacToe {
+  board: Cell[];
+  /** Who moves next. */
+  turn: Mark;
+  /** Seconds until the next move, or until a finished board clears. */
+  timer: number;
+  /** 'draw' or the winning mark once the game is over, else null. */
+  result: Mark | 'draw' | null;
+}
+
+export interface LaunchCode {
+  /** The code being cracked. */
+  code: string;
+  /** Which characters have been found and stopped flipping. */
+  found: boolean[];
+  /** What each character shows now: the real one once found, else a guess. */
+  shown: string[];
+  /** Seconds until the unfound characters show new guesses. */
+  flicker: number;
+  /** True once every warhead has been launched for the cracked code. */
+  launched: boolean;
+}
+
 export interface ThermonuclearWarState {
+  ticTacToe: TicTacToe;
+  launchCode: LaunchCode;
   countries: Country[];
   warheads: Warhead[];
   interceptors: Interceptor[];
@@ -94,8 +132,29 @@ export interface ThermonuclearWarState {
   phase: 'playing' | 'over';
 }
 
-export function createState(): ThermonuclearWarState {
+function randomCharacter(random: () => number): string {
+  return CODE_CHARACTERS[Math.floor(random() * CODE_CHARACTERS.length)];
+}
+
+export function createTicTacToe(): TicTacToe {
+  return { board: Array<Cell>(9).fill(null), turn: 'X', timer: MOVE_TIME, result: null };
+}
+
+export function createLaunchCode(random: () => number = Math.random): LaunchCode {
+  const code = Array.from({ length: CODE_LENGTH }, () => randomCharacter(random)).join('');
   return {
+    code,
+    found: Array<boolean>(CODE_LENGTH).fill(false),
+    shown: Array.from({ length: CODE_LENGTH }, () => randomCharacter(random)),
+    flicker: FLICKER_TIME,
+    launched: false,
+  };
+}
+
+export function createState(random: () => number = Math.random): ThermonuclearWarState {
+  return {
+    ticTacToe: createTicTacToe(),
+    launchCode: createLaunchCode(random),
     countries: COUNTRIES.map(([name, lon, lat]) => ({ name, city: project(lon, lat), hit: false })),
     warheads: [],
     interceptors: [],
@@ -152,6 +211,135 @@ export function launch(state: ThermonuclearWarState, random: () => number = Math
   });
 }
 
+/** Launches a warhead at every country that hasn't been hit yet, all at once. */
+export function launchAll(state: ThermonuclearWarState, random: () => number = Math.random): void {
+  state.countries.forEach((country, target) => {
+    if (country.hit) return;
+    const origins = state.countries.map((_, i) => i).filter((i) => i !== target);
+    const origin = origins[Math.floor(random() * origins.length)];
+    state.warheads.push({
+      from: { ...state.countries[origin].city },
+      target,
+      progress: 0,
+      flightTime: 5 + random() * 3,
+    });
+  });
+}
+
+const LINES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6],
+];
+
+/** The winning mark, 'draw' when the board is full with no winner, else null. */
+export function ticTacToeResult(board: Cell[]): Mark | 'draw' | null {
+  for (const [a, b, c] of LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+  }
+  return board.every((cell) => cell !== null) ? 'draw' : null;
+}
+
+/** How the game ends for `player` with best play from both sides: 1 win, 0 draw, -1 loss. */
+function outcome(board: Cell[], turn: Mark, player: Mark): number {
+  const result = ticTacToeResult(board);
+  if (result === 'draw') return 0;
+  if (result) return result === player ? 1 : -1;
+  const next: Mark = turn === 'X' ? 'O' : 'X';
+  const scores = board.flatMap((cell, i) => {
+    if (cell) return [];
+    board[i] = turn;
+    const score = outcome(board, next, player);
+    board[i] = null;
+    return [score];
+  });
+  return turn === player ? Math.max(...scores) : Math.min(...scores);
+}
+
+/**
+ * The cell `player` should take: one of the best moves, picked at random so the
+ * games differ. With both sides playing it, every game is a stalemate.
+ */
+export function bestMove(board: Cell[], player: Mark, random: () => number = Math.random): number {
+  const empty = board.map((_, i) => i).filter((i) => board[i] === null);
+  // Every opening move draws with best play, and searching them all is slow.
+  if (empty.length === 9) return empty[Math.floor(random() * empty.length)];
+  const next: Mark = player === 'X' ? 'O' : 'X';
+  const scored = empty.map((i) => {
+    const trial = [...board];
+    trial[i] = player;
+    return { i, score: outcome(trial, next, player) };
+  });
+  const best = Math.max(...scored.map((m) => m.score));
+  const moves = scored.filter((m) => m.score === best);
+  return moves[Math.floor(random() * moves.length)].i;
+}
+
+/** Finds one more character of the launch code, at random. Returns false if none are left. */
+export function crackCharacter(code: LaunchCode, random: () => number = Math.random): boolean {
+  const left = code.found.map((_, i) => i).filter((i) => !code.found[i]);
+  if (left.length === 0) return false;
+  const index = left[Math.floor(random() * left.length)];
+  code.found[index] = true;
+  code.shown[index] = code.code[index];
+  return true;
+}
+
+export function codeCracked(code: LaunchCode): boolean {
+  return code.found.every(Boolean);
+}
+
+/**
+ * Advances the WOPR by `dt` seconds: the unfound characters flip, both sides
+ * of tic-tac-toe move, and each stalemate finds a character. Once the whole
+ * code is found, every warhead launches.
+ */
+export function stepWopr(
+  state: ThermonuclearWarState,
+  dt: number,
+  random: () => number = Math.random,
+): void {
+  const code = state.launchCode;
+  code.flicker -= dt;
+  while (code.flicker <= 0) {
+    code.flicker += FLICKER_TIME;
+    code.found.forEach((found, i) => {
+      if (!found) code.shown[i] = randomCharacter(random);
+    });
+  }
+
+  if (codeCracked(code)) {
+    if (!code.launched) {
+      code.launched = true;
+      launchAll(state, random);
+    }
+    return;
+  }
+
+  const game = state.ticTacToe;
+  game.timer -= dt;
+  while (game.timer <= 0) {
+    if (game.result) {
+      state.ticTacToe = createTicTacToe();
+      return;
+    }
+    game.board[bestMove(game.board, game.turn, random)] = game.turn;
+    game.turn = game.turn === 'X' ? 'O' : 'X';
+    game.result = ticTacToeResult(game.board);
+    if (game.result) {
+      game.timer += BOARD_PAUSE;
+      if (game.result === 'draw') crackCharacter(code, random);
+    } else {
+      game.timer += MOVE_TIME;
+    }
+  }
+}
+
 /** Fires an interceptor from NORAD that bursts at the aim point. Returns false if nothing fired. */
 export function fire(state: ThermonuclearWarState, aimX: number, aimY: number): boolean {
   if (state.phase !== 'playing' || state.reload > 0) return false;
@@ -176,6 +364,7 @@ export function step(
 
   if (state.phase === 'over') return;
 
+  stepWopr(state, dt, random);
   state.reload = Math.max(0, state.reload - dt);
   state.nextLaunch -= dt;
   if (state.nextLaunch <= 0) {
@@ -387,6 +576,53 @@ const CONTINENTS: [number, number][][] = [
   ],
 ];
 
+/** The WOPR's tic-tac-toe, in the bottom right corner of the map. */
+function drawTicTacToe(ctx: CanvasRenderingContext2D, game: TicTacToe) {
+  const { colors } = theme;
+  const cell = 18;
+  const left = WIDTH - 16 - cell * 3;
+  const top = MAP_BOTTOM - 8 - cell * 3;
+
+  ctx.fillStyle = colors.background;
+  ctx.fillRect(left - 4, top - 4, cell * 3 + 8, cell * 3 + 8);
+  ctx.strokeStyle = colors.water;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 1; i < 3; i++) {
+    ctx.moveTo(left + cell * i, top);
+    ctx.lineTo(left + cell * i, top + cell * 3);
+    ctx.moveTo(left, top + cell * i);
+    ctx.lineTo(left + cell * 3, top + cell * i);
+  }
+  ctx.stroke();
+
+  ctx.font = canvasFont('small', 'bold');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  game.board.forEach((mark, i) => {
+    if (!mark) return;
+    ctx.fillStyle = mark === 'X' ? colors.accent : colors.text;
+    ctx.fillText(mark, left + cell * (i % 3) + cell / 2, top + cell * Math.floor(i / 3) + cell / 2);
+  });
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** The launch code: found characters hold still, the rest keep flipping. */
+function drawLaunchCode(ctx: CanvasRenderingContext2D, code: LaunchCode) {
+  const { colors } = theme;
+  const spacing = 18;
+  const left = WIDTH / 2 - (spacing * (CODE_LENGTH - 1)) / 2;
+  ctx.font = canvasFont('body', 'bold');
+  ctx.textAlign = 'center';
+  code.shown.forEach((character, i) => {
+    ctx.fillStyle = code.found[i] ? colors.accent : colors.muted;
+    ctx.fillText(character, left + spacing * i, HEIGHT - 20);
+  });
+  ctx.font = canvasFont('small');
+  ctx.fillStyle = code.launched ? colors.danger : colors.water;
+  ctx.fillText(code.launched ? 'LAUNCHING ALL WEAPONS' : 'LAUNCH CODE', WIDTH / 2, HEIGHT - 44);
+}
+
 function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: Point) {
   const { colors } = theme;
 
@@ -490,6 +726,9 @@ function draw(ctx: CanvasRenderingContext2D, state: ThermonuclearWarState, aim: 
   ctx.font = canvasFont('body', 'bold');
   ctx.textAlign = 'center';
   ctx.fillText('GLOBAL THERMONUCLEAR WAR', WIDTH / 2, 26);
+
+  drawTicTacToe(ctx, state.ticTacToe);
+  drawLaunchCode(ctx, state.launchCode);
 
   ctx.fillStyle = colors.text;
   ctx.textAlign = 'left';
